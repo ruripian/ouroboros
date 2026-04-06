@@ -1,0 +1,365 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * 폰트 설정
+ * 구조: @font-face 선언 → CSS 변수 → body 적용
+ * 새 폰트 추가 방법:
+ *   1. frontend/font/ 에 파일 추가
+ *   2. 아래 @font-face 블록 복사해서 추가
+ *   3. --font-sans / --font-mono / --font-heading 변수 교체
+ */
+
+/* Pretendard Variable — 한국어 기본 폰트 (weight 100–900 지원) */
+@font-face {
+  font-family: "Pretendard";
+  src: url("../font/PretendardVariable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap; /* 폰트 로딩 전 시스템 폰트 먼저 보여줌 */
+}
+
+/*
+ * 폰트 패밀리 CSS 변수
+ * 나중에 영문 전용 폰트(e.g. Inter, Geist)를 추가할 경우:
+ *   --font-sans: "InterVariable", "Pretendard", sans-serif;
+ *   --font-heading: "GeistVariable", "Pretendard", sans-serif;
+ */
+:root {
+  --font-sans:    "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono:    "JetBrains Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+  --font-heading: "Pretendard", -apple-system, sans-serif;
+}
+
+@layer base {
+  /* LIGHT — Pale Sage */
+  :root {
+    --background:          220  8% 93%;   /* #e8eaee — 쿨 라이트 슬레이트 */
+    --foreground:          220 20% 12%;   /* #171c28 */
+
+    --card:                220 10% 98%;   /* #f4f5f8 — 거의 흰색 */
+    --card-foreground:     220 20% 12%;
+
+    --popover:             220 10% 98%;
+    --popover-foreground:  220 20% 12%;
+
+    --primary:             221 82% 58%;   /* #3d72e8 — 일렉트릭 블루 */
+    --primary-foreground:   0  0% 100%;  /* 흰색 */
+
+    --secondary:           220  8% 88%;   /* #d8dce6 */
+    --secondary-foreground: 220 20% 12%;
+
+    --muted:               220  8% 88%;
+    --muted-foreground:    220  8% 48%;   /* #717a8a */
+
+    --accent:              220  8% 84%;   /* #ccd0da */
+    --accent-foreground:   220 20% 12%;
+
+    --destructive:          18 82% 52%;   /* #e85d24 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border:              221 40% 72%;   /* primary 블루 계열 border — 뚜렷한 구분 */
+    --input:               220 10% 90%;  /* input 배경용 */
+    --ring:                221 82% 58%;
+    --radius:              0.75rem;
+
+    /* 사이드바 */
+    --sidebar-background:  220 10% 90%;
+    --sidebar-foreground:  220 20% 12%;
+    --sidebar-primary:     221 82% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent:      220  8% 84%;
+    --sidebar-accent-foreground: 220 20% 12%;
+    --sidebar-border:      221 30% 68%;   /* 사이드바도 블루 계열 */
+    --sidebar-ring:        221 82% 58%;
+
+    /* ── 패널 변수 — 완전 불투명 ── */
+    --glass-bg:            rgb(240, 242, 250);
+    --glass-sidebar-bg:    rgb(225, 230, 242);
+    --glass-border:        rgba(61, 114, 232, 0.35);   /* primary 블루 테두리 */
+    --glass-shadow:        0 8px 32px rgba(61, 114, 232, 0.08), 0 2px 8px rgba(61, 114, 232, 0.05), inset 0 1px 0 rgba(255,255,255,0.60);
+    --glass-sidebar-shadow: 0 0 0 1px rgba(61, 114, 232, 0.12), 2px 0 24px rgba(61, 114, 232, 0.06);
+
+    /* ── 배경 패턴 변수 ── */
+    --perspective-dot-color: rgba(50, 70, 140, 0.32);  /* 원근 투시 점 격자 — 진하게 */
+  }
+
+  /* DARK — Deep Forest */
+  .dark {
+    --background:          222 22%  6%;   /* #090d16 — 딥 차콜 슬레이트 */
+    --foreground:          220 15% 82%;   /* #c2c8d8 */
+
+    --card:                222 18% 10%;   /* #101624 */
+    --card-foreground:     220 15% 82%;
+
+    --popover:             222 18% 10%;
+    --popover-foreground:  220 15% 82%;
+
+    --primary:              48 100% 48%;
+    --primary-foreground:  220 28%  8%;
+
+    --secondary:           222 16% 15%;   /* #172030 */
+    --secondary-foreground: 220 15% 82%;
+
+    --muted:               222 16% 15%;
+    --muted-foreground:    220 10% 46%;   /* #6b7488 */
+
+    --accent:              222 16% 15%;
+    --accent-foreground:   220 15% 82%;
+
+    --destructive:          18 82% 52%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border:               48 50% 28%;   /* 골드 계열 border — 뚜렷한 구분 */
+    --input:               222 16% 15%;  /* input 배경용 */
+    --ring:                 48 100% 48%;
+
+    /* 사이드바 */
+    --sidebar-background:  222 24%  4%;   /* #060910 */
+    --sidebar-foreground:  220 15% 82%;
+    --sidebar-primary:      48 100% 48%;
+    --sidebar-primary-foreground: 220 28% 8%;
+    --sidebar-accent:      222 20% 12%;
+    --sidebar-accent-foreground: 220 15% 82%;
+    --sidebar-border:       48 30% 22%;   /* 사이드바도 골드 계열 */
+    --sidebar-ring:         48 100% 48%;
+
+    /* ── 패널 변수 — 완전 불투명 ── */
+    --glass-bg:            rgb(12, 18, 34);
+    --glass-sidebar-bg:    rgb(6, 9, 18);
+    --glass-border:        rgba(229, 168, 0, 0.25);    /* 골드 테두리 */
+    --glass-shadow:        0 8px 40px rgba(0, 0, 0, 0.60), 0 2px 12px rgba(0,0,0,0.40), inset 0 1px 0 rgba(229, 168, 0, 0.06);
+    --glass-sidebar-shadow: 0 0 0 1px rgba(229, 168, 0, 0.10), 2px 0 32px rgba(0,0,0,0.50);
+
+    /* ── 배경 패턴 변수 ── */
+    --perspective-dot-color: rgba(229, 168, 0, 0.24);  /* 원근 투시 점 격자 — 골드, 진하게 */
+  }
+}
+
+/* 전역 기본 스타일 */
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    /* 반응형 베이스 폰트 — 뷰포트 폭에 비례, 상·하한 고정
+       FHD(1920): 0.875% × 1920 = 16.8px (기존과 동일)
+       QHD(2560): 22.4px → 상한 19px로 제한
+       UHD(3840): 상한 19px 고정
+       모바일(360): 하한 14px 고정 */
+    font-size: clamp(14px, 0.875vw, 19px);
+  }
+
+  /*
+   * body — 전역 배경 레이어 (3개)
+   *
+   * 1순위(위): X 마크 — 140px 간격, SVG 데이터 URL, 은은하게 흩뿌려진 기하학적 패턴
+   * 2순위(밑): 우로보로스 링 × 2 — 우상단 고정 대형 원호, 깊이감
+   *
+   * background-attachment: fixed → 스크롤과 무관하게 뷰포트에 고정
+   *
+   * 라이트 모드: 녹색 계열 X 마크 (opacity 0.13)
+   * .dark body에서 다크 모드 X 마크로 덮어씀
+   */
+  body {
+    @apply text-foreground;
+    font-family: var(--font-sans);
+    background-color: hsl(var(--background));
+  }
+
+  /* 원근 투시 점 격자 — 웨이브 애니메이션 + 뷰포트 고정
+     will-change: transform 으로 GPU 전용 레이어 분리 → 매 프레임 리페인트 방지 */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: -60% -25% 0 -25%;
+    background-image: radial-gradient(circle, var(--perspective-dot-color) 2.5px, transparent 2.5px);
+    background-size: 24px 24px;
+    transform: perspective(350px) rotateX(58deg);
+    transform-origin: 50% 100%;
+    pointer-events: none;
+    z-index: 0;
+    will-change: transform;
+    animation: perspective-wave 30s ease-in-out infinite;
+  }
+  @keyframes perspective-wave {
+    0%,100% { transform: perspective(350px) rotateX(58deg); }
+    50%     { transform: perspective(355px) rotateX(58.3deg) translateY(-0.5px); }
+  }
+  /* 애니메이션 끄기 — minimal 모드 */
+  [data-motion="minimal"] body::before { animation: none; }
+  /* 초광폭 화면(2560px+): 도트 간격 넓혀 GPU 부하 감소 */
+  @media (min-width: 2560px) {
+    body::before { background-size: 32px 32px; }
+  }
+
+  /* 콘텐츠가 점 격자 위에 오도록 */
+  body > * { position: relative; z-index: 1; }
+}
+
+/* 글라스 유틸리티 */
+@layer components {
+  /*
+   * .glass — 일반 카드/다이얼로그용
+   * 뒤 배경 패턴이 흐릿하게 비쳐 보임
+   */
+  .glass {
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    transition: box-shadow 0.2s ease;
+  }
+
+  /*
+   * .glass-sidebar — 사이드바/상단바용
+   */
+  .glass-sidebar {
+    background: var(--glass-sidebar-bg);
+    border-color: var(--glass-border);
+    box-shadow: var(--glass-sidebar-shadow);
+  }
+
+}
+
+/* 커스텀 스크롤바 — @layer 밖에 선언해야 모든 스크롤 요소에 적용됨 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.6);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* bg-scale-pattern — body 패턴이 전역 적용되므로 이 클래스는 no-op */
+.bg-scale-pattern {
+  background-color: transparent;
+}
+
+/* 이슈 상세 슬라이드 오버 패널 애니메이션 (레거시, 현재 미사용) */
+@keyframes slideInFromRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+.panel-slide-in {
+  animation: slideInFromRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* 이슈 상세 중앙 모달 등장 애니메이션 */
+@keyframes modalIn {
+  from { transform: scale(0.96) translateY(8px); opacity: 0; }
+  to   { transform: scale(1)    translateY(0);   opacity: 1; }
+}
+.modal-in {
+  animation: modalIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* tiptap 에디터 스타일 */
+.ProseMirror {
+  outline: none;
+  color: hsl(var(--foreground));
+  font-size: 0.875rem;
+  line-height: 1.625;
+}
+.ProseMirror p { margin: 0.25em 0; }
+.ProseMirror ul,
+.ProseMirror ol { padding-left: 1.5em; margin: 0.5em 0; }
+.ProseMirror li { margin: 0.15em 0; }
+.ProseMirror blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 0.75em;
+  color: hsl(var(--muted-foreground));
+  margin: 0.5em 0;
+}
+.ProseMirror code {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+}
+.ProseMirror pre {
+  background: hsl(var(--muted));
+  border-radius: 6px;
+  padding: 0.75em 1em;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.ProseMirror pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+}
+.ProseMirror a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+}
+/* tiptap placeholder */
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
+/* Skeleton shimmer 애니메이션 */
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+/* 버튼 그림자 시스템 — 물리적 깊이감 (3단계 shadow) */
+.btn-depth {
+  box-shadow:
+    0 2px 0 hsl(var(--primary) / 0.6),
+    0 4px 8px rgba(0,0,0,0.25),
+    0 8px 24px rgba(0,0,0,0.12);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.btn-depth:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 3px 0 hsl(var(--primary) / 0.6),
+    0 6px 12px rgba(0,0,0,0.3),
+    0 12px 32px rgba(0,0,0,0.15);
+}
+.btn-depth:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 0 hsl(var(--primary) / 0.6),
+    0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* auth 페이지에서 원근 점 숨기기 */
+body.hide-dots::before { display: none; }
+
+/* 애니메이션 끄기 — minimal 모드에서 GPU 부하가 큰 요소 비활성화 */
+[data-motion="minimal"] body::before { animation: none !important; }
+[data-motion="minimal"] .ouroboros-orbit circle { animation: none !important; }
+[data-motion="minimal"] .ouroboros-orbit animateMotion { display: none; }
+
+/* 활성 탭 하단 그라데이션 라인 */
+.tab-active-line {
+  position: absolute;
+  bottom: -1px;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, hsl(var(--primary)), transparent);
+  border-radius: 99px;
+}

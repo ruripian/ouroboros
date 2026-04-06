@@ -1,0 +1,220 @@
+/**
+ * Board 뷰 — 상태별 칸반 보드 + 드래그앤드롭
+ * BoardPage의 로직을 패널 연동 방식으로 리팩토링
+ */
+
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { Plus, CalendarRange } from "lucide-react";
+import { formatDate } from "@/utils/date-format";
+import { AvatarInitials } from "@/components/ui/avatar-initials";
+import { issuesApi } from "@/api/issues";
+import { projectsApi } from "@/api/projects";
+import { Button } from "@/components/ui/button";
+import { IssueCreateDialog } from "@/components/issues/IssueCreateDialog";
+import { cn } from "@/lib/utils";
+import { HoverLift, StaggerList, StaggerItem } from "@/components/motion";
+import type { Issue, State } from "@/types";
+
+interface Props {
+  workspaceSlug: string;
+  projectId:     string;
+  onIssueClick:  (issueId: string) => void;
+  issueFilter?: Record<string, string>;
+}
+
+export function BoardView({ workspaceSlug, projectId, onIssueClick, issueFilter }: Props) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [createOpen, setCreateOpen]       = useState(false);
+  const [selectedState, setSelectedState] = useState<State | null>(null);
+
+  /* 드래그 상태 */
+  const [draggedIssueId, setDraggedIssueId] = useState<string | null>(null);
+  const [dragOverStateId, setDragOverStateId] = useState<string | null>(null);
+
+  const { data: issues = [] } = useQuery({
+    queryKey: ["issues", workspaceSlug, projectId, issueFilter],
+    queryFn:  () => issuesApi.list(workspaceSlug, projectId, issueFilter),
+  });
+
+  const { data: states = [] } = useQuery({
+    queryKey: ["states", projectId],
+    queryFn:  () => projectsApi.states.list(workspaceSlug, projectId),
+  });
+
+  const updateIssue = useMutation({
+    mutationFn: ({ issueId, stateId }: { issueId: string; stateId: string }) =>
+      issuesApi.update(workspaceSlug, projectId, issueId, { state: stateId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["issues", workspaceSlug, projectId] });
+      qc.invalidateQueries({ queryKey: ["my-issues", workspaceSlug] });
+      qc.invalidateQueries({ queryKey: ["recent-issues", workspaceSlug] });
+    },
+  });
+
+  const issuesByState = states.reduce<Record<string, Issue[]>>((acc, state) => {
+    acc[state.id] = issues.filter((i) => i.state === state.id);
+    return acc;
+  }, {});
+
+  return (
+    <div className="p-2 sm:p-4 h-full flex flex-col overflow-hidden">
+      {/* 칸반 컬럼 — min-w로 최소 너비 보장, flex-1로 균등 분배, 모바일 터치 스크롤 */}
+      <div className="flex gap-2 sm:gap-3 overflow-x-auto flex-1 pb-4 snap-x snap-mandatory sm:snap-none">
+        {states.map((state) => (
+          <div
+            key={state.id}
+            className={cn(
+              "group flex flex-col min-w-[260px] sm:min-w-[220px] flex-1 flex-shrink-0 rounded-2xl p-2 transition-colors duration-200 border-2 snap-start",
+              dragOverStateId === state.id 
+                ? "bg-secondary/20 border-primary/30" 
+                : "bg-transparent border-transparent"
+            )}
+            onDragEnter={() => setDragOverStateId(state.id)}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOverStateId(state.id);
+            }}
+            onDragLeave={(e) => {
+              // Ignore leave events if dragging child elements inside the column
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                if (dragOverStateId === state.id) setDragOverStateId(null);
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOverStateId(null);
+              const issueId = e.dataTransfer.getData("issueId");
+              if (issueId) updateIssue.mutate({ issueId, stateId: state.id });
+              setDraggedIssueId(null);
+            }}
+          >
+            <div className="flex items-center gap-2.5 mb-3 px-2 pb-3" style={{ borderBottom: `2px solid ${state.color}20` }}>
+              <span
+                className="h-2.5 w-2.5 rounded-full shrink-0"
+                style={{ background: state.color }}
+              />
+              <span className="text-sm font-semibold">{state.name}</span>
+              <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full ml-auto">
+                {issuesByState[state.id]?.length ?? 0}
+              </span>
+              <Button
+                variant="ghost" size="icon" className="h-5 w-5"
+                onClick={() => { setSelectedState(state); setCreateOpen(true); }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+
+            <StaggerList className="space-y-2 flex-1 px-1">
+              {(issuesByState[state.id] ?? []).map((issue) => {
+                const isDraggingThis = draggedIssueId === issue.id;
+                return (
+                  <StaggerItem key={issue.id}>
+                  <HoverLift>
+                  <div
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData("issueId", issue.id);
+                      setTimeout(() => setDraggedIssueId(issue.id), 0);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedIssueId(null);
+                      setDragOverStateId(null);
+                    }}
+                    onClick={() => onIssueClick(issue.id)}
+                    className={cn(
+                      "rounded-xl border glass p-3 text-sm cursor-pointer transition-all duration-200",
+                      isDraggingThis
+                        ? "opacity-40 border-dashed border-primary/50 shadow-none scale-95"
+                        : "border-border hover:shadow-lg hover:border-border active:cursor-grabbing"
+                    )}
+                  >
+                    <p className="font-medium mb-2 line-clamp-2 text-sm">{issue.title}</p>
+
+                    {/* 2행: 시작일 → 마감일 (기한 색상 차별) */}
+                    {(issue.start_date || issue.due_date) && (() => {
+                      const today = new Date(); today.setHours(0, 0, 0, 0);
+                      const due   = issue.due_date ? new Date(issue.due_date) : null;
+                      if (due) due.setHours(0, 0, 0, 0);
+                      const diff  = due ? Math.ceil((due.getTime() - today.getTime()) / 86_400_000) : null;
+                      const dueClass =
+                        diff === null ? "text-muted-foreground" :
+                        diff < 0      ? "text-red-500 font-medium" :
+                        diff <= 3     ? "text-orange-400 font-medium" :
+                        "text-muted-foreground";
+                      return (
+                        <div className="flex items-center gap-1.5 mb-2 text-2xs">
+                          <CalendarRange className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                          <span className="text-muted-foreground">
+                            {issue.start_date ? formatDate(issue.start_date) : "—"}
+                          </span>
+                          <span className="text-muted-foreground/40">→</span>
+                          <span className={dueClass}>
+                            {issue.due_date ? formatDate(issue.due_date) : "—"}
+                          </span>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="flex items-center justify-between min-h-[20px]">
+                      {issue.assignee_details.length > 0 ? (
+                        <div className="flex -space-x-1">
+                          {issue.assignee_details.slice(0, 3).map((a) => (
+                            <AvatarInitials key={a.id} name={a.display_name} size="xs" ring title={a.display_name} />
+                          ))}
+                          {issue.assignee_details.length > 3 && (
+                            <span className="h-5 w-5 rounded-full bg-muted text-3xs flex items-center justify-center border-2 border-background text-muted-foreground">
+                              +{issue.assignee_details.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-2xs text-muted-foreground/50">{t("issues.picker.none")}</span>
+                      )}
+                      <span className="text-2xs text-muted-foreground/60 font-mono">
+                        {issue.sequence_id}
+                      </span>
+                    </div>
+                  </div>
+                  </HoverLift>
+                  </StaggerItem>
+                );
+              })}
+
+              {/* 드래그 오버 시 카드 이동 플레이스홀더 */}
+              {dragOverStateId === state.id && draggedIssueId && !issuesByState[state.id]?.some(i => i.id === draggedIssueId) && (
+                <div className="h-24 mt-2 rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 flex items-center justify-center animate-in fade-in zoom-in-95 duration-200 cursor-default">
+                  <span className="text-primary/60 text-xs font-medium flex items-center gap-2">
+                    {t("views.board.moveHere")}
+                  </span>
+                </div>
+              )}
+
+              {/* 컬럼 하단 hover 시 "+ 이슈 추가" 영역 */}
+              <button
+                type="button"
+                onClick={() => { setSelectedState(state); setCreateOpen(true); }}
+                className="w-full mt-2 flex items-center justify-center gap-2 rounded-xl border border-dashed border-border px-3 py-3 text-xs font-medium text-muted-foreground/70 opacity-0 group-hover:opacity-100 hover:border-primary/50 hover:bg-primary/5 hover:text-primary transition-all duration-150"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("views.addIssue")}
+              </button>
+            </StaggerList>
+          </div>
+        ))}
+      </div>
+
+      <IssueCreateDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        states={states}
+        defaultStateId={selectedState?.id}
+        workspaceSlug={workspaceSlug}
+        projectId={projectId}
+      />
+    </div>
+  );
+}

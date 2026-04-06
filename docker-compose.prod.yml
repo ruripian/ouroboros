@@ -1,0 +1,109 @@
+services:
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/mediafiles
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A config.celery worker -l info --concurrency 4
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A config.celery beat -l info
+    env_file:
+      - .env
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on:
+      - db
+      - redis
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: always
+
+  nginx:
+    build:
+      context: ./nginx
+    # 포트 바인딩 — .env로 환경별 커스터마이징
+    #  단독 서버(직접 노출): HOST_BIND_ADDR=0.0.0.0, HOST_HTTP_PORT=80, HOST_HTTPS_PORT=443
+    #  호스트 nginx 뒤에 둘 때: HOST_BIND_ADDR=127.0.0.1, HOST_HTTP_PORT=8080 (HTTPS는 호스트에서 종단)
+    ports:
+      - "${HOST_BIND_ADDR:-0.0.0.0}:${HOST_HTTP_PORT:-80}:80"
+      - "${HOST_BIND_ADDR:-0.0.0.0}:${HOST_HTTPS_PORT:-443}:443"
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/mediafiles
+      - certbot_conf:/etc/letsencrypt        # SSL 인증서
+      - certbot_www:/var/www/certbot          # ACME 챌린지
+    environment:
+      - DOMAIN=${DOMAIN:-}                    # 비어있으면 HTTP 모드
+    depends_on:
+      - backend
+      - frontend
+    restart: always
+
+  # --- Let's Encrypt 인증서 자동 발급/갱신 ---
+  # DOMAIN이 설정된 경우에만 동작 (비어있으면 즉시 종료)
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+    # 12시간마다 갱신 시도 (만료 30일 전에만 실제 갱신됨)
+    entrypoint: /bin/sh -c "if [ -z '${DOMAIN:-}' ]; then echo '[certbot] DOMAIN 미설정 — 건너뜀'; exit 0; fi; trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 43200; done"
+    depends_on:
+      - nginx
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_files:
+  media_files:
+  certbot_conf:
+  certbot_www:

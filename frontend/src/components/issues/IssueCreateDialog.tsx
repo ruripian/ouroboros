@@ -1,0 +1,417 @@
+/**
+ * 이슈 생성 다이얼로그 — 전체 필드 포함
+ *
+ * 필드: 제목, 설명, 상태, 우선순위, 담당자, 시작일, 마감일, 모듈, 사이클
+ * 컨텍스트 자동 할당: 모듈/사이클 뷰에서 열면 해당 값이 기본 선택됨
+ */
+import { useEffect } from "react";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import { issuesApi } from "@/api/issues";
+import { projectsApi } from "@/api/projects";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
+import { AvatarInitials } from "@/components/ui/avatar-initials";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { State, Module, Cycle, ProjectMember, IssueTemplate } from "@/types";
+
+const schema = z.object({
+  title: z.string().min(1),
+  description_html: z.string().optional(),
+  state: z.string().min(1),
+  priority: z.enum(["none", "urgent", "high", "medium", "low"]),
+  assignees: z.array(z.string()).optional(),
+  start_date: z.string().optional().or(z.literal("")),
+  due_date: z.string().optional().or(z.literal("")),
+  module: z.string().optional().or(z.literal("")),
+  cycle: z.string().optional().or(z.literal("")),
+});
+
+type FormValues = z.infer<typeof schema>;
+
+interface Props {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  states: State[];
+  defaultStateId?: string;
+  workspaceSlug: string;
+  projectId: string;
+  /** 모듈 컨텍스트에서 생성 시 자동 할당 */
+  defaultModuleId?: string;
+  /** 사이클 컨텍스트에서 생성 시 자동 할당 */
+  defaultCycleId?: string;
+  /** 하위 이슈로 생성 시 부모 이슈 ID */
+  parentIssueId?: string;
+  /** 마감일 프리필 (캘린더에서 특정 날짜 클릭 시) — "YYYY-MM-DD" */
+  defaultDueDate?: string;
+}
+
+export function IssueCreateDialog({
+  open,
+  onOpenChange,
+  states,
+  defaultStateId,
+  workspaceSlug,
+  projectId,
+  defaultModuleId,
+  defaultCycleId,
+  parentIssueId,
+  defaultDueDate,
+}: Props) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  /* Todo(unstarted) 우선 → default → 첫 번째 */
+  const pickDefault = () =>
+    states.find((s) => s.group === "unstarted")?.id ?? states.find((s) => s.default)?.id ?? states[0]?.id ?? "";
+  const initialStateId = defaultStateId ?? pickDefault();
+
+  /* 멤버/모듈/사이클 데이터 — 다이얼로그 열릴 때 fetch */
+  const { data: members = [] } = useQuery({
+    queryKey: ["project-members", workspaceSlug, projectId],
+    queryFn: () => projectsApi.members.list(workspaceSlug, projectId),
+    enabled: open,
+  });
+
+  const { data: modules = [] } = useQuery({
+    queryKey: ["modules", workspaceSlug, projectId],
+    queryFn: () => projectsApi.modules.list(workspaceSlug, projectId),
+    enabled: open,
+  });
+
+  const { data: cycles = [] } = useQuery({
+    queryKey: ["cycles", workspaceSlug, projectId],
+    queryFn: () => projectsApi.cycles.list(workspaceSlug, projectId),
+    enabled: open,
+  });
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ["templates", workspaceSlug, projectId],
+    queryFn: () => issuesApi.templates.list(workspaceSlug, projectId),
+    enabled: open,
+  });
+
+  /* 템플릿 적용 — 선택 시 폼 필드 자동 채움 */
+  const applyTemplate = (tmpl: IssueTemplate) => {
+    if (tmpl.title_template) setValue("title", tmpl.title_template);
+    if (tmpl.description_html) setValue("description_html", tmpl.description_html);
+    if (tmpl.priority) setValue("priority", tmpl.priority as FormValues["priority"]);
+  };
+
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    control,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: {
+      title: "",
+      description_html: "",
+      state: initialStateId,
+      priority: "none",
+      assignees: [],
+      start_date: "",
+      due_date: "",
+      module: defaultModuleId ?? "",
+      cycle: defaultCycleId ?? "",
+    },
+  });
+
+  const selectedAssignees = watch("assignees") ?? [];
+
+  // 다이얼로그 열릴 때마다 폼 초기화
+  useEffect(() => {
+    if (open) {
+      reset({
+        title: "",
+        description_html: "",
+        state: defaultStateId ?? pickDefault(),
+        priority: "none",
+        assignees: [],
+        start_date: "",
+        due_date: defaultDueDate ?? "",
+        module: defaultModuleId ?? "",
+        cycle: defaultCycleId ?? "",
+      });
+    }
+  }, [open]);
+
+  const mutation = useMutation({
+    mutationFn: (data: FormValues) => {
+      const payload: Record<string, unknown> = {
+        title: data.title,
+        state: data.state,
+        priority: data.priority,
+        project: projectId,
+      };
+      if (data.description_html) payload.description_html = data.description_html;
+      if (data.assignees && data.assignees.length > 0) payload.assignees = data.assignees;
+      if (data.start_date) payload.start_date = data.start_date;
+      if (data.due_date) payload.due_date = data.due_date;
+      if (data.module) payload.module = data.module;
+      if (data.cycle) payload.cycle = data.cycle;
+      if (parentIssueId) payload.parent = parentIssueId;
+      return issuesApi.create(workspaceSlug, projectId, payload);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["issues", workspaceSlug, projectId] });
+      qc.invalidateQueries({ queryKey: ["my-issues", workspaceSlug] });
+      qc.invalidateQueries({ queryKey: ["recent-issues", workspaceSlug] });
+      if (parentIssueId) {
+        qc.invalidateQueries({ queryKey: ["sub-issues", parentIssueId] });
+      }
+      reset();
+      onOpenChange(false);
+    },
+    onError: (err: any) => {
+      /* 백엔드 DRF 검증 에러는 필드별 메시지 객체 — 첫 필드의 첫 메시지 추출 */
+      const data = err?.response?.data;
+      let detail: string | undefined;
+      if (typeof data === "string") {
+        detail = data;
+      } else if (data?.detail) {
+        detail = String(data.detail);
+      } else if (data && typeof data === "object") {
+        const firstKey = Object.keys(data)[0];
+        const firstVal = data[firstKey];
+        detail = Array.isArray(firstVal) ? `${firstKey}: ${firstVal[0]}` : String(firstVal);
+      }
+      toast.error(detail ?? t("issues.create.error"));
+    },
+  });
+
+  /* 담당자 토글 — 다중 선택 */
+  const toggleAssignee = (userId: string) => {
+    const current = selectedAssignees;
+    if (current.includes(userId)) {
+      setValue("assignees", current.filter((id) => id !== userId));
+    } else {
+      setValue("assignees", [...current, userId]);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="sm:max-w-lg max-h-[85vh] overflow-y-auto"
+        /* 닫힐 때 trigger로 auto-focus 복귀 방지 — 테이블 스크롤 위치 유지 */
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>{parentIssueId ? t("issues.create.subIssueTitle") : t("issues.create.title")}</DialogTitle>
+        </DialogHeader>
+
+        <form
+          onSubmit={handleSubmit((d) => mutation.mutate(d))}
+          /* Enter 키로 인한 implicit submit 방지 — 제출 버튼 직접 클릭만 허용 */
+          onKeyDown={(e) => { if (e.key === "Enter" && (e.target as HTMLElement).tagName !== "TEXTAREA") e.preventDefault(); }}
+          className="space-y-4"
+        >
+          {/* 템플릿 선택 (있을 때만 표시) */}
+          {templates.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground">{t("issues.create.template")}:</span>
+              {templates.map((tmpl: IssueTemplate) => (
+                <button
+                  key={tmpl.id}
+                  type="button"
+                  onClick={() => applyTemplate(tmpl)}
+                  className="text-xs bg-muted hover:bg-muted/80 px-2.5 py-1 rounded-md transition-colors"
+                >
+                  {tmpl.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* 제목 */}
+          <div className="space-y-1">
+            <Label htmlFor="title">{t("issues.create.issueTitle")}</Label>
+            <Input id="title" placeholder={t("issues.create.issueTitlePlaceholder")} {...register("title")} autoFocus />
+            {errors.title && <p className="text-xs text-destructive">{t("issues.create.titleRequired")}</p>}
+          </div>
+
+          {/* 설명 */}
+          <div className="space-y-1">
+            <Label htmlFor="desc">{t("issues.create.description")}</Label>
+            <textarea
+              id="desc"
+              rows={3}
+              placeholder={t("issues.create.descriptionPlaceholder")}
+              className="flex w-full rounded-lg border border-border bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+              {...register("description_html")}
+            />
+          </div>
+
+          {/* 상태 + 우선순위 */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>{t("issues.create.status")}</Label>
+              <Select
+                defaultValue={initialStateId}
+                onValueChange={(v) => setValue("state", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("issues.create.status")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {states.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      <div className="flex items-center gap-2">
+                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                        {s.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>{t("issues.create.priority")}</Label>
+              <Select defaultValue="none" onValueChange={(v) => setValue("priority", v as FormValues["priority"])}>
+                <SelectTrigger>
+                  <SelectValue placeholder={t("issues.create.priority")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">{t("issues.priority.none")}</SelectItem>
+                  <SelectItem value="urgent">{t("issues.priority.urgent")}</SelectItem>
+                  <SelectItem value="high">{t("issues.priority.high")}</SelectItem>
+                  <SelectItem value="medium">{t("issues.priority.medium")}</SelectItem>
+                  <SelectItem value="low">{t("issues.priority.low")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* 담당자 — 다중 선택 (체크박스 스타일) */}
+          <div className="space-y-1">
+            <Label>{t("issues.create.assignees")}</Label>
+            <div className="flex flex-wrap gap-1.5 p-2 border rounded-lg min-h-[40px]">
+              {members.length === 0 ? (
+                <span className="text-xs text-muted-foreground">{t("issues.create.noMembers")}</span>
+              ) : (
+                members.map((m: ProjectMember) => {
+                  const selected = selectedAssignees.includes(m.member.id);
+                  return (
+                    <button
+                      key={m.member.id}
+                      type="button"
+                      onClick={() => toggleAssignee(m.member.id)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                        selected
+                          ? "bg-primary/15 text-primary border border-primary/30"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80 border border-transparent"
+                      }`}
+                    >
+                      <AvatarInitials name={m.member.display_name} size="xs" />
+                      {m.member.display_name}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* 시작일 + 마감일 — 커스텀 DatePicker */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>{t("issues.create.startDate")}</Label>
+              <Controller
+                control={control}
+                name="start_date"
+                render={({ field }) => (
+                  <DatePicker
+                    value={field.value || null}
+                    onChange={(v) => field.onChange(v ?? "")}
+                    placeholder={t("issues.create.startDate")}
+                    className="border border-border rounded-md bg-input/60"
+                  />
+                )}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label>{t("issues.create.dueDate")}</Label>
+              <Controller
+                control={control}
+                name="due_date"
+                render={({ field }) => (
+                  <DatePicker
+                    value={field.value || null}
+                    onChange={(v) => field.onChange(v ?? "")}
+                    placeholder={t("issues.create.dueDate")}
+                    className="border border-border rounded-md bg-input/60"
+                  />
+                )}
+              />
+            </div>
+          </div>
+
+          {/* 모듈 + 사이클 */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label>{t("issues.create.module")}</Label>
+              <Select
+                defaultValue={defaultModuleId ?? ""}
+                onValueChange={(v) => setValue("module", v === "__none__" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("issues.create.noModule")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t("issues.create.noModule")}</SelectItem>
+                  {modules.map((m: Module) => (
+                    <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-1">
+              <Label>{t("issues.create.cycle")}</Label>
+              <Select
+                defaultValue={defaultCycleId ?? ""}
+                onValueChange={(v) => setValue("cycle", v === "__none__" ? "" : v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={t("issues.create.noCycle")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t("issues.create.noCycle")}</SelectItem>
+                  {cycles.map((c: Cycle) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* 액션 */}
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              {t("issues.create.cancel")}
+            </Button>
+            <Button type="submit" disabled={mutation.isPending}>
+              {mutation.isPending ? t("issues.create.submitting") : t("issues.create.submit")}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

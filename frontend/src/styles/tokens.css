@@ -1,0 +1,26 @@
+/*
+ * 시맨틱 색상 토큰 — 우선순위 / 상태 그룹
+ *
+ * 이 파일은 기본값(default)을 정의한다.
+ * 런타임에서 워크스페이스 설정이 로드되면
+ * useWorkspaceColors 훅이 --priority-* 변수를 덮어쓴다.
+ *
+ * 컴포넌트에서는 var(--priority-high), var(--state-started) 등으로 참조하거나
+ * Tailwind 클래스 text-priority-high / bg-state-started 로 사용한다.
+ */
+
+:root {
+  /* ── 우선순위 기본 색상 ── */
+  --priority-urgent: #ff4444;  /* 긴급 — 레드 */
+  --priority-high:   #ff4db8;  /* 높음 — 핫핑크 */
+  --priority-medium: #f5c400;  /* 중간 — 골드 */
+  --priority-low:    #aaff00;  /* 낮음 — 라임그린 */
+  --priority-none:   #6b7080;  /* 없음 — 뮤트 회색 */
+
+  /* ── 상태 그룹 기본 색상 (State.color 가 없을 때 fallback) ── */
+  --state-backlog:   #6b7080;  /* 백로그 — 회색 */
+  --state-unstarted: #c8cadb;  /* 시작 전 — 연회색 */
+  --state-started:   #aaff00;  /* 진행 중 — 라임그린 */
+  --state-completed: #00c4a8;  /* 완료 — 틸 */
+  --state-cancelled: #3d4055;  /* 취소 — 다크 회색 */
+}

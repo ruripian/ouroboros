@@ -1,0 +1,566 @@
+from datetime import timedelta
+
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
+from django.utils import timezone
+from rest_framework import generics, filters, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from django_filters.rest_framework import DjangoFilterBackend
+from .models import Issue, IssueComment, IssueActivity, IssueAttachment, IssueLink, IssueTemplate, Label
+from .serializers import (
+    IssueSerializer,
+    IssueSearchSerializer,
+    IssueCommentSerializer,
+    IssueActivitySerializer,
+    IssueAttachmentSerializer,
+    IssueLinkSerializer,
+    IssueTemplateSerializer,
+    LabelSerializer,
+)
+
+
+class IssueListCreateView(generics.ListCreateAPIView):
+    serializer_class = IssueSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["state", "priority", "assignees", "label", "module", "cycle"]
+    search_fields = ["title"]
+    ordering_fields = ["sort_order", "created_at", "updated_at", "priority", "sequence_id"]
+
+    def get_queryset(self):
+        # ?include_sub_issues=true → 하위 이슈까지 포함 (타임라인 계층 뷰용)
+        include_children = self.request.query_params.get("include_sub_issues") == "true"
+        base_filter = {
+            "project_id": self.kwargs["project_pk"],
+            "project__members__member": self.request.user,
+            "deleted_at__isnull": True,
+        }
+        if not include_children:
+            base_filter["parent"] = None
+        qs = (
+            Issue.objects.filter(**base_filter)
+            .prefetch_related("assignees", "label")
+            .select_related("state", "created_by")
+        )
+
+        # 사이클 필터가 명시적으로 지정되지 않은 경우,
+        # 완료/취소된 사이클에 속한 이슈를 기본 목록에서 제외
+        if "cycle" not in self.request.query_params:
+            from django.db.models import Q
+            qs = qs.filter(
+                Q(cycle__isnull=True) |
+                Q(cycle__status__in=["draft", "active"])
+            )
+        return qs
+
+
+class IssueDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = IssueSerializer
+
+    def get_queryset(self):
+        return (
+            Issue.objects.filter(
+                project_id=self.kwargs["project_pk"],
+                project__members__member=self.request.user,
+                deleted_at__isnull=True,  # 소프트 삭제된 이슈는 상세 접근 불가
+            )
+            .prefetch_related("assignees", "label")
+            .select_related("state", "created_by")
+        )
+
+    def perform_destroy(self, instance):
+        # 소프트 삭제: 하위 이슈 포함 deleted_at 일괄 설정
+        now = timezone.now()
+        instance.sub_issues.filter(deleted_at__isnull=True).update(deleted_at=now)
+        instance.deleted_at = now
+        instance.save(update_fields=["deleted_at"])
+
+    def perform_update(self, serializer):
+        old = serializer.instance
+        old_cycle_id = old.cycle_id
+        # 저장 전 추적 필드 값 캡처 (스칼라 필드만)
+        old_values = {
+            "title":    old.title,
+            "priority": old.priority,
+            "state":    str(old.state_id) if old.state_id else "",
+        }
+        updated = serializer.save()
+        new_values = {
+            "title":    updated.title,
+            "priority": updated.priority,
+            "state":    str(updated.state_id) if updated.state_id else "",
+        }
+        # 변경된 필드에 대한 활동 로그를 일괄 생성
+        activities = [
+            IssueActivity(
+                issue=updated,
+                actor=self.request.user,
+                verb="updated",
+                field=field,
+                old_value=old_val or None,
+                new_value=new_values[field] or None,
+            )
+            for field, old_val in old_values.items()
+            if old_val != new_values[field]
+        ]
+        if activities:
+            IssueActivity.objects.bulk_create(activities)
+
+        # 스프린트(cycle) 변경 시 하위 이슈도 동일 스프린트로 자동 배정
+        if updated.cycle_id != old_cycle_id:
+            updated.sub_issues.filter(deleted_at__isnull=True).update(cycle=updated.cycle)
+
+
+class IssueCommentListCreateView(generics.ListCreateAPIView):
+    serializer_class = IssueCommentSerializer
+
+    def get_queryset(self):
+        return IssueComment.objects.filter(issue_id=self.kwargs["issue_pk"])
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["issue_id"] = self.kwargs["issue_pk"]
+        return context
+
+
+class IssueCommentDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = IssueCommentSerializer
+
+    def get_queryset(self):
+        return IssueComment.objects.filter(
+            issue_id=self.kwargs["issue_pk"],
+            actor=self.request.user,
+        )
+
+
+class IssueActivityListView(generics.ListAPIView):
+    serializer_class = IssueActivitySerializer
+
+    def get_queryset(self):
+        return IssueActivity.objects.filter(issue_id=self.kwargs["issue_pk"])
+
+
+class WorkspaceRecentIssuesView(generics.ListAPIView):
+    """워크스페이스 전체에서 최근 수정된 이슈 10개 — 대시보드용"""
+    serializer_class = IssueSerializer
+
+    def get_queryset(self):
+        return (
+            Issue.objects.filter(
+                workspace__slug=self.kwargs["workspace_slug"],
+                project__members__member=self.request.user,
+                parent=None,
+                deleted_at__isnull=True,
+            )
+            .prefetch_related("assignees", "label")
+            .select_related("state", "created_by", "project")
+            .order_by("-updated_at")[:10]
+        )
+
+
+class WorkspaceIssueSearchView(generics.ListAPIView):
+    """워크스페이스 전체 이슈 검색 — Cmd+K 전역 검색용
+
+    쿼리 파라미터:
+      ?search=키워드  — 이슈 제목 부분 일치 (icontains)
+      최대 20개 반환, 최신 수정 순
+    """
+    serializer_class = IssueSearchSerializer
+
+    def get_queryset(self):
+        qs = (
+            Issue.objects.filter(
+                workspace__slug=self.kwargs["workspace_slug"],
+                project__members__member=self.request.user,
+                deleted_at__isnull=True,
+            )
+            .prefetch_related("assignees", "label")
+            .select_related("state", "created_by", "project")
+            .order_by("-updated_at")
+        )
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(title__icontains=search)
+        return qs[:20]
+
+
+class IssueRestoreView(generics.GenericAPIView):
+    """소프트 삭제된 이슈를 휴지통에서 복구"""
+    serializer_class = IssueSerializer
+
+    def get_queryset(self):
+        return Issue.objects.filter(
+            project_id=self.kwargs["project_pk"],
+            project__members__member=self.request.user,
+            deleted_at__isnull=False,  # 삭제된 것만 조회 가능
+        )
+
+    def post(self, request, *args, **kwargs):
+        instance = self.get_object()
+        # 함께 삭제됐던 하위 이슈도 복구 (같은 deleted_at 시점 기준)
+        instance.sub_issues.filter(deleted_at=instance.deleted_at).update(deleted_at=None)
+        instance.deleted_at = None
+        instance.save(update_fields=["deleted_at"])
+        return Response(IssueSerializer(instance, context={"request": request}).data)
+
+
+class IssueTrashListView(generics.ListAPIView):
+    """프로젝트의 소프트 삭제된 이슈 목록 (휴지통)"""
+    serializer_class = IssueSerializer
+
+    def get_queryset(self):
+        return (
+            Issue.objects.filter(
+                project_id=self.kwargs["project_pk"],
+                project__members__member=self.request.user,
+                deleted_at__isnull=False,
+            )
+            .prefetch_related("assignees", "label")
+            .select_related("state", "created_by")
+            .order_by("-deleted_at")
+        )
+
+
+class IssueHardDeleteView(generics.DestroyAPIView):
+    """소프트 삭제된 이슈를 영구 삭제 (되돌릴 수 없음)"""
+    serializer_class = IssueSerializer
+
+    def get_queryset(self):
+        return Issue.objects.filter(
+            project_id=self.kwargs["project_pk"],
+            project__members__member=self.request.user,
+            deleted_at__isnull=False,
+        )
+
+
+class SubIssueListCreateView(generics.ListCreateAPIView):
+    """특정 이슈의 하위 이슈 목록 조회 및 생성"""
+    serializer_class = IssueSerializer
+
+    def get_queryset(self):
+        return (
+            Issue.objects.filter(
+                parent_id=self.kwargs["issue_pk"],
+                project_id=self.kwargs["project_pk"],
+                deleted_at__isnull=True,  # 소프트 삭제된 하위 이슈 제외
+            )
+            .prefetch_related("assignees", "label")
+            .select_related("state", "created_by")
+        )
+
+    def perform_create(self, serializer):
+        # 부모 이슈에서 project 주입, 클라이언트는 project를 별도로 전송해야 함
+        parent = Issue.objects.get(
+            id=self.kwargs["issue_pk"],
+            project_id=self.kwargs["project_pk"],
+        )
+        serializer.save(parent=parent)
+
+
+class IssueLinkListCreateView(generics.ListCreateAPIView):
+    """이슈에 첨부된 외부 링크 목록 조회 및 생성"""
+    serializer_class = IssueLinkSerializer
+
+    def get_queryset(self):
+        return IssueLink.objects.filter(issue_id=self.kwargs["issue_pk"])
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["issue_id"] = self.kwargs["issue_pk"]
+        return context
+
+
+class IssueLinkDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """이슈 링크 단건 수정/삭제 — 생성자 본인만 가능"""
+    serializer_class = IssueLinkSerializer
+
+    def get_queryset(self):
+        return IssueLink.objects.filter(
+            issue_id=self.kwargs["issue_pk"],
+            created_by=self.request.user,
+        )
+
+
+class IssueAttachmentListCreateView(generics.ListCreateAPIView):
+    """이슈 첨부파일 목록 조회 및 업로드"""
+    serializer_class = IssueAttachmentSerializer
+    # multipart/form-data 업로드를 위해 parser 별도 설정 불필요 (DRF 기본 지원)
+
+    def get_queryset(self):
+        return IssueAttachment.objects.filter(issue_id=self.kwargs["issue_pk"])
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["issue_id"] = self.kwargs["issue_pk"]
+        return context
+
+
+class IssueAttachmentDetailView(generics.DestroyAPIView):
+    """이슈 첨부파일 삭제 — 업로더 본인만 가능"""
+    serializer_class = IssueAttachmentSerializer
+
+    def get_queryset(self):
+        return IssueAttachment.objects.filter(
+            issue_id=self.kwargs["issue_pk"],
+            uploaded_by=self.request.user,
+        )
+
+
+class WorkspaceMyIssuesView(generics.ListAPIView):
+    """내가 배정된 이슈 — 워크스페이스 홈용 (완료/취소 제외)
+
+    프론트에서 state_detail 기준으로 그룹핑하여 표시.
+    완료(completed)/취소(cancelled) 그룹은 제외하여 "할 일" 중심으로 보여줌.
+    """
+    serializer_class = IssueSerializer
+
+    def get_queryset(self):
+        return (
+            Issue.objects.filter(
+                workspace__slug=self.kwargs["workspace_slug"],
+                assignees=self.request.user,
+                deleted_at__isnull=True,
+            )
+            .exclude(state__group__in=["completed", "cancelled"])
+            .select_related("state", "created_by", "project")
+            .prefetch_related("assignees", "label")
+            .order_by("state__sequence", "-updated_at")
+        )
+
+
+class IssueBulkUpdateView(APIView):
+    """이슈 일괄 업데이트 — 상태/우선순위/담당자/라벨 일괄 변경
+
+    PATCH /api/workspaces/:slug/projects/:id/issues/bulk/
+    Body: { issue_ids: [uuid], updates: { state?, priority?, assignees?, label? } }
+    """
+
+    def patch(self, request, workspace_slug, project_pk):
+        issue_ids = request.data.get("issue_ids", [])
+        updates = request.data.get("updates", {})
+
+        if not issue_ids or not updates:
+            return Response({"detail": "issue_ids와 updates가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        issues = Issue.objects.filter(
+            id__in=issue_ids,
+            project_id=project_pk,
+            project__members__member=request.user,
+            deleted_at__isnull=True,
+        )
+
+        if issues.count() != len(issue_ids):
+            return Response({"detail": "일부 이슈를 찾을 수 없습니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # M2M 필드 분리
+        assignees = updates.pop("assignees", None)
+        labels = updates.pop("label", None)
+
+        # 스칼라 필드 일괄 업데이트
+        if updates:
+            issues.update(**updates)
+
+        # M2M 필드 개별 처리
+        if assignees is not None:
+            for issue in issues:
+                issue.assignees.set(assignees)
+        if labels is not None:
+            for issue in issues:
+                issue.label.set(labels)
+
+        # 활동 로그 일괄 생성
+        activities = []
+        for field, value in {**updates, **({"assignees": assignees} if assignees else {}), **({"label": labels} if labels else {})}.items():
+            for issue in issues:
+                activities.append(IssueActivity(
+                    issue=issue, actor=request.user, verb="updated",
+                    field=field, new_value=str(value),
+                ))
+        if activities:
+            IssueActivity.objects.bulk_create(activities)
+
+        return Response({"detail": f"{issues.count()}개 이슈가 업데이트되었습니다."})
+
+
+class IssueBulkDeleteView(APIView):
+    """이슈 일괄 소프트 삭제
+
+    POST /api/workspaces/:slug/projects/:id/issues/bulk-delete/
+    Body: { issue_ids: [uuid] }
+    """
+
+    def post(self, request, workspace_slug, project_pk):
+        issue_ids = request.data.get("issue_ids", [])
+        if not issue_ids:
+            return Response({"detail": "issue_ids가 필요합니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+        updated = Issue.objects.filter(
+            id__in=issue_ids,
+            project_id=project_pk,
+            project__members__member=request.user,
+            deleted_at__isnull=True,
+        ).update(deleted_at=now)
+
+        # 하위 이슈도 함께 소프트 삭제
+        Issue.objects.filter(
+            parent_id__in=issue_ids,
+            deleted_at__isnull=True,
+        ).update(deleted_at=now)
+
+        return Response({"detail": f"{updated}개 이슈가 삭제되었습니다."})
+
+
+class ProjectIssueStatsView(APIView):
+    """프로젝트 이슈 통계 — 대시보드 차트용
+
+    응답 구조:
+      by_state:    [{state_id, state_name, group, color, count}]
+      by_priority: [{priority, count}]
+      over_time:   [{date, created, completed}]  # 최근 30일
+      by_assignee: [{user_id, display_name, avatar, count}]
+    """
+
+    def get(self, request, workspace_slug, project_pk):
+        base_qs = Issue.objects.filter(
+            project_id=project_pk,
+            project__members__member=request.user,
+            deleted_at__isnull=True,
+        )
+
+        # 1) 상태별 이슈 수 (state가 NULL인 이슈는 "미분류"로 처리)
+        by_state = list(
+            base_qs.filter(state__isnull=False)
+            .values("state__id", "state__name", "state__group", "state__color")
+            .annotate(count=Count("id"))
+            .order_by("state__sequence")
+        )
+        by_state_data = [
+            {
+                "state_id": str(row["state__id"]),
+                "state_name": row["state__name"],
+                "group": row["state__group"],
+                "color": row["state__color"],
+                "count": row["count"],
+            }
+            for row in by_state
+        ]
+        # 미분류(state=NULL) 이슈 카운트 추가
+        unassigned_count = base_qs.filter(state__isnull=True).count()
+        if unassigned_count > 0:
+            by_state_data.append({
+                "state_id": "none",
+                "state_name": "Unassigned",
+                "group": "backlog",
+                "color": "#9ca3af",
+                "count": unassigned_count,
+            })
+
+        # 2) 우선순위별 이슈 수
+        by_priority = list(
+            base_qs.values("priority")
+            .annotate(count=Count("id"))
+            .order_by("priority")
+        )
+
+        # 3) 최근 30일 일별 생성/완료 추이
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        created_per_day = dict(
+            base_qs.filter(created_at__gte=thirty_days_ago)
+            .annotate(date=TruncDate("created_at"))
+            .values("date")
+            .annotate(count=Count("id"))
+            .values_list("date", "count")
+        )
+        # 완료 = state group이 'completed'인 활동 로그 기준
+        completed_per_day = dict(
+            IssueActivity.objects.filter(
+                issue__project_id=project_pk,
+                issue__deleted_at__isnull=True,
+                field="state",
+                created_at__gte=thirty_days_ago,
+            )
+            .filter(
+                new_value__in=list(
+                    Issue.objects.filter(project_id=project_pk)
+                    .values_list("state__id", flat=True)
+                    .filter(state__group="completed")
+                    .distinct()
+                )
+            )
+            .annotate(date=TruncDate("created_at"))
+            .values("date")
+            .annotate(count=Count("id"))
+            .values_list("date", "count")
+        )
+        over_time = []
+        for i in range(30):
+            d = (timezone.now() - timedelta(days=29 - i)).date()
+            over_time.append({
+                "date": d.isoformat(),
+                "created": created_per_day.get(d, 0),
+                "completed": completed_per_day.get(d, 0),
+            })
+
+        # 4) 담당자별 이슈 수
+        from apps.accounts.serializers import UserSerializer
+        by_assignee_raw = (
+            base_qs.filter(assignees__isnull=False)
+            .values("assignees__id", "assignees__display_name", "assignees__avatar")
+            .annotate(count=Count("id"))
+            .order_by("-count")[:10]
+        )
+        by_assignee = [
+            {
+                "user_id": str(row["assignees__id"]),
+                "display_name": row["assignees__display_name"],
+                "avatar": row["assignees__avatar"] or "",
+                "count": row["count"],
+            }
+            for row in by_assignee_raw
+        ]
+
+        return Response({
+            "by_state": by_state_data,
+            "by_priority": by_priority,
+            "over_time": over_time,
+            "by_assignee": by_assignee,
+        })
+
+
+class LabelListCreateView(generics.ListCreateAPIView):
+    serializer_class = LabelSerializer
+
+    def get_queryset(self):
+        return Label.objects.filter(project_id=self.kwargs["project_pk"])
+
+    def perform_create(self, serializer):
+        serializer.save(project_id=self.kwargs["project_pk"])
+
+
+class LabelDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = LabelSerializer
+
+    def get_queryset(self):
+        return Label.objects.filter(project_id=self.kwargs["project_pk"])
+
+
+class IssueTemplateListCreateView(generics.ListCreateAPIView):
+    """이슈 템플릿 목록 조회 및 생성"""
+    serializer_class = IssueTemplateSerializer
+
+    def get_queryset(self):
+        return IssueTemplate.objects.filter(project_id=self.kwargs["project_pk"])
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx["project_pk"] = self.kwargs["project_pk"]
+        return ctx
+
+
+class IssueTemplateDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """이슈 템플릿 단건 조회/수정/삭제"""
+    serializer_class = IssueTemplateSerializer
+
+    def get_queryset(self):
+        return IssueTemplate.objects.filter(project_id=self.kwargs["project_pk"])

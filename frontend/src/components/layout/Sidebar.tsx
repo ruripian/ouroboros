@@ -1,0 +1,384 @@
+import { useState, useRef } from "react";
+import { Link, useParams, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { useQuery } from "@tanstack/react-query";
+import {
+  Home,
+  Compass,
+  ListChecks,
+  Layers,
+  Plus,
+  ChevronDown,
+  Settings,
+  SlidersHorizontal,
+  Star,
+  GripVertical,
+  Trash2,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { projectsApi } from "@/api/projects";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
+import { ProjectIcon } from "@/components/ui/project-icon-picker";
+import type { Project, Module } from "@/types";
+
+function NavItem({
+  to,
+  icon: Icon,
+  label,
+  active,
+}: {
+  to: string;
+  icon?: React.ElementType;
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <Link
+      to={to}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
+        active
+          ? "bg-primary/12 text-primary shadow-sm"
+          : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+      )}
+    >
+      {Icon && <Icon className="h-4 w-4 shrink-0" />}
+      <span className="truncate">{label}</span>
+      {active && (
+        <span className="ml-auto h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+      )}
+    </Link>
+  );
+}
+
+function SubLink({ to, icon: Icon, label, active }: { to: string; icon: React.ElementType; label: string; active: boolean }) {
+  return (
+    <Link
+      to={to}
+      className={cn(
+        "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-all duration-150",
+        active
+          ? "bg-primary/10 text-primary font-medium"
+          : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+      )}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
+      {active && <span className="ml-auto h-1 w-1 rounded-full bg-primary shrink-0" />}
+    </Link>
+  );
+}
+
+function ProjectItem({
+  project,
+  workspaceSlug,
+  isActive,
+  isFavorite,
+  onSelect,
+  onToggleFavorite,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+  isDragOver,
+}: {
+  project: Project;
+  workspaceSlug: string;
+  isActive: boolean;
+  isFavorite: boolean;
+  onSelect: (p: Project) => void;
+  onToggleFavorite: (id: string) => void;
+  draggable?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragEnd?: () => void;
+  onDrop?: () => void;
+  isDragOver?: boolean;
+}) {
+  const { t } = useTranslation();
+  const location = useLocation();
+  const base = `/${workspaceSlug}/projects/${project.id}`;
+
+  const issuesActive =
+    location.pathname === `${base}/issues` ||
+    location.pathname === `${base}/board`;
+
+  const { data: modules = [] } = useQuery({
+    queryKey: ["modules", workspaceSlug, project.id],
+    queryFn: () => projectsApi.modules.list(workspaceSlug, project.id),
+    enabled: isActive,
+  });
+
+  return (
+    <div
+      className={cn("space-y-0.5", isDragOver && "ring-1 ring-primary/40 rounded-xl")}
+      draggable={draggable}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        onDragStart?.();
+      }}
+      onDragOver={(e) => { e.preventDefault(); onDragOver?.(e); }}
+      onDragEnd={onDragEnd}
+      onDrop={(e) => { e.preventDefault(); onDrop?.(); }}
+    >
+      <div className="flex items-center group/proj">
+        {draggable && (
+          <GripVertical className="h-3 w-3 shrink-0 text-muted-foreground/0 group-hover/proj:text-muted-foreground/40 transition-colors cursor-grab mr-0.5" />
+        )}
+        <button
+          onClick={() => onSelect(project)}
+          className={cn(
+            "flex-1 flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150 text-left min-w-0",
+            isActive
+              ? "text-sidebar-foreground bg-sidebar-accent/60"
+              : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+          )}
+        >
+          {project.icon_prop ? (
+            <ProjectIcon value={project.icon_prop} size={12} className="shrink-0" />
+          ) : (
+            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-2xs font-bold text-primary ring-1 ring-primary/20">
+              {project.identifier[0]}
+            </span>
+          )}
+          <span className="truncate flex-1 text-sm">{project.name}</span>
+          {isActive && (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite(project.id); }}
+          className={cn(
+            "shrink-0 p-1 rounded-lg transition-all",
+            isFavorite
+              ? "text-amber-500"
+              : "text-muted-foreground/0 group-hover/proj:text-muted-foreground/40 hover:!text-amber-500"
+          )}
+          title={isFavorite ? t("sidebar.unfavorite") : t("sidebar.favorite")}
+        >
+          <Star className="h-3.5 w-3.5" fill={isFavorite ? "currentColor" : "none"} />
+        </button>
+      </div>
+
+      {isActive && (
+        <div className="ml-3 pl-4 space-y-0.5 border-l-2 border-primary/20">
+          <SubLink to={`${base}/issues`} icon={ListChecks} label={t("sidebar.issues")} active={issuesActive} />
+          <SubLink
+            to={`${base}/modules`}
+            icon={Layers}
+            label={t("sidebar.modules")}
+            active={location.pathname === `${base}/modules`}
+          />
+          {modules.map((mod: Module) => (
+            <Link
+              key={mod.id}
+              to={`${base}/modules/${mod.id}/issues`}
+              className={cn(
+                "flex items-center gap-2 rounded-lg px-2.5 py-1 ml-4 text-xs transition-all duration-150",
+                location.pathname === `${base}/modules/${mod.id}/issues`
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-sidebar-foreground/65 hover:text-sidebar-foreground hover:bg-sidebar-accent/40"
+              )}
+            >
+              <ProjectIcon value={mod.icon_prop} size={10} className="!w-4 !h-4 shrink-0" />
+              <span className="truncate">{mod.name}</span>
+            </Link>
+          ))}
+          <SubLink
+            to={`${base}/issues?view=trash`}
+            icon={Trash2}
+            label={t("views.tabs.trash")}
+            active={location.search.includes("view=trash")}
+          />
+          <SubLink
+            to={`${base}/settings`}
+            icon={SlidersHorizontal}
+            label={t("sidebar.settings")}
+            active={location.pathname.startsWith(`${base}/settings`)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Sidebar({ onNavigate }: { onNavigate?: () => void } = {}) {
+  const { t } = useTranslation();
+  const { workspaceSlug } = useParams<{ workspaceSlug: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { currentProject, setCurrentProject, favorites, projectOrder, toggleFavorite, setProjectOrder } = useWorkspaceStore();
+
+  const { data: projects = [] } = useQuery({
+    queryKey: ["projects", workspaceSlug],
+    queryFn: () => projectsApi.list(workspaceSlug!),
+    enabled: !!workspaceSlug,
+  });
+
+  const slug = workspaceSlug ?? "";
+  const favIds = new Set(favorites[slug] ?? []);
+  const order = projectOrder[slug] ?? [];
+
+  /* 순서 적용 — order에 있는 ID 순서대로, 없는 프로젝트는 뒤에 붙임 */
+  const sortedProjects = [...projects].sort((a, b) => {
+    const ai = order.indexOf(a.id);
+    const bi = order.indexOf(b.id);
+    if (ai === -1 && bi === -1) return 0;
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
+
+  const favoriteProjects = sortedProjects.filter((p) => favIds.has(p.id));
+  const otherProjects = sortedProjects.filter((p) => !favIds.has(p.id));
+
+  /* DnD 상태 */
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  const handleDrop = (targetId: string) => {
+    if (!dragId || dragId === targetId) { setDragId(null); setDragOverId(null); return; }
+    const ids = sortedProjects.map((p) => p.id);
+    const fromIdx = ids.indexOf(dragId);
+    const toIdx = ids.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, dragId);
+    setProjectOrder(slug, ids);
+    setDragId(null);
+    setDragOverId(null);
+  };
+
+  const handleSelectProject = (project: Project) => {
+    setCurrentProject(project);
+    navigate(`/${workspaceSlug}/projects/${project.id}/issues`);
+    onNavigate?.();
+  };
+
+  const renderProject = (project: Project) => (
+    <ProjectItem
+      key={project.id}
+      project={project}
+      workspaceSlug={slug}
+      isActive={currentProject?.id === project.id}
+      isFavorite={favIds.has(project.id)}
+      onSelect={handleSelectProject}
+      onToggleFavorite={(id) => toggleFavorite(slug, id)}
+      draggable
+      onDragStart={() => setDragId(project.id)}
+      onDragOver={() => setDragOverId(project.id)}
+      onDragEnd={() => { setDragId(null); setDragOverId(null); }}
+      onDrop={() => handleDrop(project.id)}
+      isDragOver={dragOverId === project.id && dragId !== project.id}
+    />
+  );
+
+  return (
+    <aside className="flex h-screen w-64 flex-col border-r glass-sidebar shrink-0" role="navigation" aria-label="Main navigation">
+
+      <div className="flex h-14 items-center gap-3 border-b border-border px-4">
+        <Link
+          to={`/${workspaceSlug}`}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary text-sm font-black text-primary-foreground shadow-md ring-2 ring-primary/30 hover:brightness-110 transition-all"
+        >
+          ∞
+        </Link>
+        <div className="flex flex-col min-w-0">
+          <span className="truncate text-sm font-semibold text-sidebar-foreground leading-tight">
+            {workspaceSlug}
+          </span>
+          <span className="text-xs text-sidebar-foreground/60">{t("sidebar.workspace")}</span>
+        </div>
+        <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-sidebar-foreground/60" />
+      </div>
+
+      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */}
+      <nav className="flex flex-col flex-1 overflow-y-auto p-3 gap-1" onClick={(e) => {
+        if ((e.target as HTMLElement).closest("a")) onNavigate?.();
+      }}>
+
+        <NavItem
+          to={`/${workspaceSlug}`}
+          icon={Home}
+          label={t("sidebar.home")}
+          active={location.pathname === `/${workspaceSlug}`}
+        />
+
+        <NavItem
+          to={`/${workspaceSlug}/projects/discover`}
+          icon={Compass}
+          label={t("sidebar.discover")}
+          active={location.pathname === `/${workspaceSlug}/projects/discover`}
+        />
+
+        {favoriteProjects.length > 0 && (
+          <div className="mt-5">
+            <div className="flex items-center gap-2 px-3 mb-2">
+              <Star className="h-3 w-3 text-amber-500" fill="currentColor" />
+              <span className="text-xs font-semibold uppercase tracking-widest text-sidebar-foreground/65">
+                {t("sidebar.favorites")}
+              </span>
+            </div>
+            <div className="space-y-0.5">
+              {favoriteProjects.map(renderProject)}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5">
+          <div className="flex items-center justify-between px-3 mb-2">
+            <span className="text-xs font-semibold uppercase tracking-widest text-sidebar-foreground/65">
+              {t("sidebar.projects")}
+            </span>
+            <Link
+              to={`/${workspaceSlug}/projects/create`}
+              className="rounded-lg p-1 text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors"
+              title={t("sidebar.newProject")}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+
+          <div className="space-y-0.5">
+            {otherProjects.length === 0 && favoriteProjects.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-sidebar-foreground/70">
+                {t("sidebar.noProjects")}
+              </p>
+            ) : otherProjects.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-sidebar-foreground/50">
+                {t("sidebar.allFavorited")}
+              </p>
+            ) : (
+              otherProjects.map(renderProject)
+            )}
+          </div>
+        </div>
+      </nav>
+
+      <div className="border-t border-border p-3 space-y-1">
+        <Link
+          to={`/${workspaceSlug}/settings/profile`}
+          className={cn(
+            "flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-150",
+            location.pathname.startsWith(`/${workspaceSlug}/settings`)
+              ? "bg-primary/10 text-primary"
+              : "text-sidebar-foreground/75 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+          )}
+        >
+          <Settings className="h-4 w-4 shrink-0" />
+          <span>{t("sidebar.settings")}</span>
+        </Link>
+
+        <div className="flex items-center gap-2 rounded-xl px-3 py-2">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+          </span>
+          <span className="text-xs text-sidebar-foreground/70">{t("sidebar.connected")}</span>
+        </div>
+      </div>
+    </aside>
+  );
+}

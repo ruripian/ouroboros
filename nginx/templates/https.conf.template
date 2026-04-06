@@ -1,0 +1,108 @@
+# ═══════════════════════════════════════════════════
+# HTTPS 설정 (Let's Encrypt 자동 인증서)
+# DOMAIN 환경변수가 entrypoint에서 치환됨
+# ═══════════════════════════════════════════════════
+upstream backend {
+    server backend:8000;
+}
+
+upstream frontend {
+    server frontend:80;
+}
+
+# --- HTTP → HTTPS 리다이렉트 ---
+server {
+    listen 80;
+    server_name ${DOMAIN};
+
+    # Let's Encrypt ACME 챌린지 (인증서 발급/갱신용)
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # 나머지 요청은 HTTPS로 리다이렉트
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# --- HTTPS 서버 ---
+server {
+    listen 443 ssl http2;
+    server_name ${DOMAIN};
+    client_max_body_size 10M;
+
+    # --- SSL 인증서 ---
+    ssl_certificate     /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+
+    # --- SSL 프로토콜/암호화 설정 (보안 체크리스트 IM02 준수) ---
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5:!RC4;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+
+    # --- 보안 헤더 ---
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+    # --- API ---
+    location /api/ {
+        limit_except GET POST PUT PATCH DELETE OPTIONS {
+            deny all;
+        }
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+
+    # --- WebSocket ---
+    location /ws/ {
+        proxy_pass http://backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 86400;
+    }
+
+    # --- Django Admin ---
+    location /admin/ {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # --- 정적 파일 ---
+    location /static/ {
+        alias /app/staticfiles/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # --- 미디어 파일 ---
+    location /media/ {
+        alias /app/mediafiles/;
+        expires 7d;
+        add_header Content-Disposition "attachment" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
+    # --- 프론트엔드 SPA ---
+    location / {
+        proxy_pass http://frontend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}

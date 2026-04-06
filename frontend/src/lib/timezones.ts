@@ -1,0 +1,21 @@
+/** 주요 타임존 목록 — 설정 페이지 Select에서 사용 */
+export const TIMEZONES = [
+  { value: "Asia/Seoul",         label: "Seoul / Tokyo (UTC+9)" },
+  { value: "Asia/Tokyo",         label: "Tokyo (UTC+9)" },
+  { value: "Asia/Shanghai",      label: "Beijing / Shanghai (UTC+8)" },
+  { value: "Asia/Singapore",     label: "Singapore (UTC+8)" },
+  { value: "Asia/Hong_Kong",     label: "Hong Kong (UTC+8)" },
+  { value: "Asia/Kolkata",       label: "India (UTC+5:30)" },
+  { value: "Asia/Dubai",         label: "Dubai (UTC+4)" },
+  { value: "Europe/London",      label: "London (UTC+0/+1)" },
+  { value: "Europe/Paris",       label: "Paris / Berlin (UTC+1/+2)" },
+  { value: "Europe/Moscow",      label: "Moscow (UTC+3)" },
+  { value: "America/New_York",   label: "New York (UTC-5/-4)" },
+  { value: "America/Chicago",    label: "Chicago (UTC-6/-5)" },
+  { value: "America/Denver",     label: "Denver (UTC-7/-6)" },
+  { value: "America/Los_Angeles",label: "Los Angeles (UTC-8/-7)" },
+  { value: "America/Sao_Paulo",  label: "São Paulo (UTC-3)" },
+  { value: "Pacific/Auckland",   label: "Auckland (UTC+12/+13)" },
+  { value: "Pacific/Sydney",     label: "Sydney (UTC+10/+11)" },
+  { value: "UTC",                label: "UTC (UTC+0)" },
+] as const;

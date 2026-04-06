@@ -1,0 +1,20 @@
+Ouroboros
+=========
+
+Copyright (c) 2026 Suho Han (ruripian)
+
+This product includes software developed by third parties.
+See THIRD_PARTY_LICENSES.md for the complete list of open-source
+dependencies and their licenses.
+
+Notable licenses:
+-----------------
+
+* psycopg (LGPL-3.0 with OpenSSL exception) — PostgreSQL driver
+  - Used as dynamic import only, unmodified.
+  - Users may replace or upgrade psycopg independently via `pip install`.
+  - Source: https://github.com/psycopg/psycopg
+  - License: https://www.psycopg.org/docs/license.html
+
+All other dependencies are distributed under permissive licenses
+(MIT, BSD, Apache-2.0, ISC, etc.) — see THIRD_PARTY_LICENSES.md.
