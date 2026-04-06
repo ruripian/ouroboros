@@ -168,13 +168,15 @@ export function IssueCreateDialog({
       if (parentIssueId) payload.parent = parentIssueId;
       return issuesApi.create(workspaceSlug, projectId, payload);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["issues", workspaceSlug, projectId] });
-      qc.invalidateQueries({ queryKey: ["my-issues", workspaceSlug] });
-      qc.invalidateQueries({ queryKey: ["recent-issues", workspaceSlug] });
-      if (parentIssueId) {
-        qc.invalidateQueries({ queryKey: ["sub-issues", parentIssueId] });
-      }
+    onSuccess: async () => {
+      await Promise.all([
+        qc.refetchQueries({ queryKey: ["issues", workspaceSlug, projectId] }),
+        qc.invalidateQueries({ queryKey: ["my-issues", workspaceSlug] }),
+        qc.invalidateQueries({ queryKey: ["recent-issues", workspaceSlug] }),
+        parentIssueId
+          ? qc.invalidateQueries({ queryKey: ["sub-issues", parentIssueId] })
+          : Promise.resolve(),
+      ]);
       reset();
       onOpenChange(false);
     },

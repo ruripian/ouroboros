@@ -476,6 +476,11 @@
     "deleteConfirm": "이 카테고리를 삭제하시겠습니까? 카테고리에 연결된 이슈는 삭제되지 않습니다.",
     "deleted": "카테고리가 삭제되었습니다",
     "deleteFailed": "카테고리 삭제에 실패했습니다",
+    "editTitle": "카테고리 수정",
+    "save": "저장",
+    "saving": "저장 중...",
+    "updateFailed": "카테고리 수정에 실패했습니다",
+    "updated": "카테고리가 수정되었습니다",
     "status": {
       "backlog": "백로그",
       "active": "진행 중",

@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   /* 개발 */
@@ -138,9 +137,18 @@ export function ProjectIconPicker({ value, onChange, size = "lg" }: ProjectIconP
   const current = parseIconProp(value);
   const CurrentIcon = ICON_MAP[current.name] ?? Box;
   const containerRef = useRef<HTMLDivElement>(null);
-
-  /* 바깥 클릭 시 닫기 — 트리거 + portal 팝오버 모두 포함 */
   const popoverRef = useRef<HTMLDivElement>(null);
+
+  /* 팝오버 방향: 아래로 열기 vs 위로 열기 */
+  const [openUp, setOpenUp] = useState(false);
+  useEffect(() => {
+    if (!open || !containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    setOpenUp(spaceBelow < 400 && rect.top > 400);
+  }, [open]);
+
+  /* 바깥 클릭 시 닫기 */
   useEffect(() => {
     if (!open) return;
     const onClickOutside = (e: MouseEvent) => {
@@ -157,25 +165,8 @@ export function ProjectIconPicker({ value, onChange, size = "lg" }: ProjectIconP
   const triggerSize = size === "sm" ? 32 : size === "md" ? 48 : 64;
   const iconSize = size === "sm" ? 16 : size === "md" ? 24 : 32;
 
-  /* 팝오버 위치 계산 — 트리거 기준 fixed 배치 */
-  const [popoverPos, setPopoverPos] = useState<{ top: number; left: number } | null>(null);
-  const updatePos = useCallback(() => {
-    if (!containerRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const popH = 400;
-    const popW = 320;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const top = spaceBelow >= popH ? rect.bottom + 4 : rect.top - popH - 4;
-    const left = Math.min(rect.left, window.innerWidth - popW - 8);
-    setPopoverPos({ top, left });
-  }, []);
-
-  useEffect(() => {
-    if (open) updatePos();
-  }, [open, updatePos]);
-
   return (
-    <div ref={containerRef} className="relative inline-block">
+    <div ref={containerRef} className="relative inline-block" style={{ zIndex: open ? 9999 : undefined }}>
       {/* 트리거 버튼 */}
       <button
         type="button"
@@ -194,18 +185,20 @@ export function ProjectIconPicker({ value, onChange, size = "lg" }: ProjectIconP
         <CurrentIcon size={iconSize} strokeWidth={2.25} />
       </button>
 
-      {/* 팝오버 — body portal로 렌더 (다이얼로그 overflow 회피) */}
-      {open && popoverPos && createPortal(
+      {/* 팝오버 — portal 미사용, absolute 배치로 Dialog inert 문제 회피 */}
+      {open && (
         <div
-          className="fixed z-50 w-[320px] rounded-xl border border-border shadow-2xl overflow-hidden"
+          ref={popoverRef}
+          className="absolute left-0 w-[320px] rounded-xl border border-border shadow-2xl overflow-hidden"
           style={{
-            top: popoverPos.top,
-            left: popoverPos.left,
+            [openUp ? "bottom" : "top"]: triggerSize + 4,
+            zIndex: 9999,
             background: "var(--glass-bg)",
             boxShadow: "0 24px 48px rgba(0,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.06) inset",
           }}
           role="dialog"
-          ref={popoverRef}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           <div className="relative px-4 pt-3 pb-2">
             <div
@@ -315,8 +308,7 @@ export function ProjectIconPicker({ value, onChange, size = "lg" }: ProjectIconP
               </div>
             ))}
           </div>
-        </div>,
-        document.body,
+        </div>
       )}
     </div>
   );

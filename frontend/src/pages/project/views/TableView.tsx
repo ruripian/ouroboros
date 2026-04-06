@@ -1313,7 +1313,7 @@ function IssueCard({
             onClick={(e) => { e.stopPropagation(); onToggleSelect(issue.id, e.shiftKey); }}
             className="shrink-0"
           >
-            <Checkbox checked={!!selected} onChange={() => {}} />
+            <Checkbox checked={!!selected} onChange={() => {}} className="pointer-events-none" />
           </span>
         )}
 
@@ -1448,13 +1448,8 @@ function IssueCard({
                   }
                 }}
                 onBlur={() => {
-                  /* 포커스 잃으면(바깥 클릭) 입력값이 있으면 이슈 생성, 없으면 닫기 */
-                  if (childTitle.trim()) {
-                    createSubMutation.mutate(childTitle.trim());
-                  } else {
-                    setAddingChild(false);
-                    setChildTitle("");
-                  }
+                  setAddingChild(false);
+                  setChildTitle("");
                 }}
                 placeholder={t("issues.table.subIssuePlaceholder")}
                 className="flex-1 min-w-0 bg-transparent outline-none text-sm text-foreground placeholder:text-muted-foreground/50"

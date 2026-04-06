@@ -476,6 +476,11 @@
     "deleteConfirm": "Delete this category? Issues linked to this category will not be deleted.",
     "deleted": "Category deleted",
     "deleteFailed": "Failed to delete category",
+    "editTitle": "Edit Category",
+    "save": "Save",
+    "saving": "Saving...",
+    "updateFailed": "Failed to update category",
+    "updated": "Category updated",
     "status": {
       "backlog": "Backlog",
       "active": "Active",

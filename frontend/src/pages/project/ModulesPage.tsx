@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
-import { Plus, Layers, Trash2 } from "lucide-react";
+import { Plus, Layers, Trash2, Settings } from "lucide-react";
 import { projectsApi } from "@/api/projects";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,10 @@ export function ModulesPage() {
   /* 아이콘 선택 — ProjectIconPicker는 Zod 바깥의 controlled state로 관리 */
   const [iconProp, setIconProp] = useState<IconProp | null>(null);
 
+  /* 편집 다이얼로그 상태 */
+  const [editModule, setEditModule] = useState<Module | null>(null);
+  const [editIconProp, setEditIconProp] = useState<IconProp | null>(null);
+
   const { data: modules = [] } = useQuery({
     queryKey: ["modules", workspaceSlug, projectId],
     queryFn: () => projectsApi.modules.list(workspaceSlug!, projectId!),
@@ -48,6 +52,23 @@ export function ModulesPage() {
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
+
+  const {
+    register: editRegister,
+    handleSubmit: editHandleSubmit,
+    reset: editReset,
+    formState: { errors: editErrors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+  });
+
+  /* 편집 다이얼로그 열릴 때 폼 초기화 */
+  useEffect(() => {
+    if (editModule) {
+      editReset({ name: editModule.name, description: editModule.description ?? "" });
+      setEditIconProp(editModule.icon_prop as unknown as IconProp | null);
+    }
+  }, [editModule, editReset]);
 
   const createMutation = useMutation({
     mutationFn: (data: FormValues) => {
@@ -67,6 +88,22 @@ export function ModulesPage() {
     onError: () => toast.error(t("modules.createFailed")),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: (data: FormValues) => {
+      if (!editModule) throw new Error("No module selected");
+      return projectsApi.modules.update(workspaceSlug!, projectId!, editModule.id, {
+        ...data,
+        icon_prop: editIconProp as unknown as Record<string, unknown> | null,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["modules", workspaceSlug, projectId] });
+      toast.success(t("modules.updated"));
+      setEditModule(null);
+    },
+    onError: () => toast.error(t("modules.updateFailed")),
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (moduleId: string) => projectsApi.modules.delete(workspaceSlug!, projectId!, moduleId),
     onSuccess: () => {
@@ -81,6 +118,11 @@ export function ModulesPage() {
     if (window.confirm(t("modules.deleteConfirm"))) {
       deleteMutation.mutate(moduleId);
     }
+  };
+
+  const handleEdit = (e: React.MouseEvent, mod: Module) => {
+    e.stopPropagation();
+    setEditModule(mod);
   };
 
   // 모듈 클릭 → 모듈 전용 이슈 뷰로 이동
@@ -127,6 +169,13 @@ export function ModulesPage() {
                 {t("modules.issueCount", { count: mod.issue_count })}
               </span>
               <button
+                onClick={(e) => handleEdit(e, mod)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                title={t("modules.editTitle")}
+              >
+                <Settings className="h-4 w-4" />
+              </button>
+              <button
                 onClick={(e) => handleDelete(e, mod.id)}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
                 title={t("modules.delete")}
@@ -167,6 +216,39 @@ export function ModulesPage() {
               </Button>
               <Button type="submit" disabled={createMutation.isPending}>
                 {createMutation.isPending ? t("modules.creating") : t("modules.create")}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* 모듈 편집 다이얼로그 */}
+      <Dialog open={!!editModule} onOpenChange={(v) => { if (!v) setEditModule(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("modules.editTitle")}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={editHandleSubmit((d) => updateMutation.mutate(d))} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>{t("modules.name")}</Label>
+              <div className="flex items-center gap-3">
+                <ProjectIconPicker value={editIconProp as unknown as Record<string, unknown> | null} onChange={setEditIconProp} size="lg" />
+                <Input placeholder={t("modules.namePlaceholder")} {...editRegister("name")} autoFocus className="h-10 flex-1" />
+              </div>
+              {editErrors.name && <p className="text-xs text-destructive">{t("modules.nameRequired")}</p>}
+            </div>
+
+            <div className="space-y-1">
+              <Label>{t("modules.description")}</Label>
+              <Input placeholder={t("modules.descriptionPlaceholder")} {...editRegister("description")} />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setEditModule(null)}>
+                {t("modules.cancel")}
+              </Button>
+              <Button type="submit" disabled={updateMutation.isPending}>
+                {updateMutation.isPending ? t("modules.saving") : t("modules.save")}
               </Button>
             </div>
           </form>

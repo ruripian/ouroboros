@@ -13,6 +13,8 @@ const GITHUB_USER = "ruripian";
 export function SponsorButton() {
   const [open, setOpen] = useState(false);
 
+  if (import.meta.env.VITE_SHOW_SPONSOR === "false") return null;
+
   return (
     <>
       {/* 플로팅 버튼 — 우측 하단 */}

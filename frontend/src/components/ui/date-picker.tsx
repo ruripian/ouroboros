@@ -131,6 +131,7 @@ export function DatePicker({
     <>
       {/* ── 트리거 버튼 ── */}
       <button
+        type="button"
         ref={triggerRef}
         onClick={(e) => {
           e.stopPropagation();
